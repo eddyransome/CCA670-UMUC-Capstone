@@ -1,0 +1,116 @@
+# Author: Edmond N. Pewing
+# Version: 1.2
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 key pair for SSH access to the EC2 instance.
+    Type: AWS::EC2::KeyPair::KeyName 
+  JenkinsCodeDeployRole:
+    Type: String
+    Default: JenkinsCodeDeployRole
+    Description: Provide an IAM role that Jenkins server will use to deploy code using codedeploy agent.
+  JenkinsInstanceType:
+    Type: String
+    Default: c4.2xlarge
+    Description: Jenkins Server Instance Type
+    AllowedValues: 
+    - m4.large
+    - m4.xlarge
+    - m4.2xlarge
+    - c4.large
+    - c4.xlarge
+    - c4.2xlarge
+    - c4.4xlarge
+    - c4.8xlarge
+  SSHLocation:
+    Description: The IP address range that can be used to SSH to the EC2 instances
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 0.0.0.0/0
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  VpcCidr:
+    Type: AWS::EC2::VPC::Id
+    Description: Select the VPC to deploy Jenkins Server
+  JenkinsSubnetID: 
+    Type: AWS::EC2::Subnet::Id
+    Description: Select a valid Jenkins server subnet with Internet access
+Mappings: 
+  AWSRegionAMI: 
+    us-east-1: 
+      AMI: ami-006219aba10688d0b
+    us-east-2: 
+      AMI: ami-02ccb28830b645a41
+    us-west-1: 
+      AMI: ami-03caa3f860895f82e
+    us-west-2: 
+      AMI: ami-04590e7389a6e577c
+    eu-central-1: 
+      AMI: ami-07cda0db070313c52
+    eu-west-1: 
+      AMI: ami-0713f98de93617bb4
+    eu-west-2: 
+      AMI: ami-0089b31e09ac3fffc
+    eu-west-3: 
+      AMI: ami-04590e7389a6e577c
+Resources:
+  JenkinsSecurityGroups:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Enable HTTP access via port 80, 8080 & SSH access"
+      GroupName: !Ref AWS::StackName
+      SecurityGroupIngress:
+      - CidrIp: 0.0.0.0/0
+        FromPort: '80'
+        IpProtocol: tcp
+        ToPort: '80'
+      - CidrIp: !Ref SSHLocation
+        FromPort: '22'
+        IpProtocol: tcp
+        ToPort: '22'
+      - CidrIp: 0.0.0.0/0
+        FromPort: '8080'
+        IpProtocol: tcp
+        ToPort: '8080'
+      VpcId: !Ref VpcCidr
+  JenkinsServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 100
+      ImageId:
+        Fn::FindInMap:
+        - AWSRegionAMI
+        - !Ref AWS::Region
+        - AMI
+      InstanceType: !Ref JenkinsInstanceType
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref JenkinsCodeDeployRole
+      SubnetId: !Ref JenkinsSubnetID
+      SecurityGroupIds: 
+        - !Ref JenkinsSecurityGroups
+      UserData:
+        Fn::Base64: |
+           #!/bin/bash
+           yum update -y
+           yum remove java-1.7.0-openjdk -y
+           yum install java-1.8.0 -y
+           wget -O /etc/yum.repos.d/jenkins.repo http://pkg.jenkins-ci.org/redhat/jenkins.repo
+           rpm --import http://pkg.jenkins-ci.org/redhat/jenkins-ci.org.key
+           yum install jenkins -y
+           systemctl start jenkins.service
+           systemctl enable jenkins.service
+Outputs:
+  InstanceId:
+    Description: The instance ID of Jenkins server
+    Value: !Ref JenkinsServer
+  JenkinsURL:
+    Value: 
+      !Sub 'http://${JenkinsServer.PublicDnsName}:8080'
+    Description: Jenkins URL
+  PublicIP:
+    Description: Public IP address of Jenkins server
+    Value:
+      !GetAtt JenkinsServer.PublicIp
