@@ -1,0 +1,94 @@
+# Author: Edmond N. Pewing
+# Version: 1.0
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 key pair for SSH access to the EC2 instance.
+    Type: AWS::EC2::KeyPair::KeyName 
+  SafeNetInstanceType:
+    Type: String
+    Default: m4.large
+    Description: SafeNet Instance Type
+    AllowedValues: 
+    - m4.large
+    - c4.4xlarge
+    - r4.4xlarge
+  SafeNetInstanceName:
+    Type: String
+    Default: BallotOnlineSafeNetSystem
+    Description: The name of the SafeNet instance to deploy and display
+
+  SSHOrigin:
+    Description: The IP address range that can be used to SSH to the EC2 instances
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 100.15.249.116/32
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+
+  VpcCidr:
+    Type: AWS::EC2::VPC::Id
+    Description: Select the VPC to deploy SafeNet Server
+  SafeNetSubnetID: 
+    Type: AWS::EC2::Subnet::Id
+    Description: Select a valid SafeNet server subnet with internet access
+Mappings: 
+  AWSRegionAMI: 
+    us-east-1: 
+      AMI: ami-0e89a61d203862853
+    us-east-2: 
+      AMI: ami-0e89a61d203862853
+
+Resources:
+  SafeNetSecurityGroups:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Enable HTTP access via port 9000,9001,9443,5696 & SSH access"
+      GroupName: !Ref AWS::StackName
+      SecurityGroupIngress:
+      - CidrIp: 0.0.0.0/0
+        FromPort: '9000'
+        IpProtocol: tcp
+        ToPort: '9000'
+      - CidrIp: 0.0.0.0/0
+        FromPort: '9443'
+        IpProtocol: tcp
+        ToPort: '9443'
+      - CidrIp: 0.0.0.0/0
+        FromPort: '9001'
+        IpProtocol: tcp
+        ToPort: '9001'
+      - CidrIp: 0.0.0.0/0
+        FromPort: '5696'
+        IpProtocol: tcp
+        ToPort: '5696'
+      - CidrIp: !Ref SSHOrigin
+        FromPort: '22'
+        IpProtocol: tcp
+        ToPort: '22'
+      VpcId: !Ref VpcCidr
+  BallotOnlineSafeNet:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId:
+        Fn::FindInMap:
+        - AWSRegionAMI
+        - !Ref AWS::Region
+        - AMI
+      InstanceType: !Ref SafeNetInstanceType
+      KeyName: !Ref KeyName
+      SubnetId: !Ref SafeNetSubnetID
+      SecurityGroupIds: 
+        - !Ref SafeNetSecurityGroups
+Outputs:
+  InstanceId:
+    Description: The instance ID of SafeNet
+    Value: !Ref BallotOnlineSafeNet
+  SafeNetURL:
+    Value: 
+      !Sub 'http://${BallotOnlineSafeNet.PublicDnsName}:9443'
+    Description: SafeNet Console URL
+  PublicIP:
+    Description: Public IP address of SafeNet instance
+    Value:
+      !GetAtt BallotOnlineSafeNet.PublicIp
