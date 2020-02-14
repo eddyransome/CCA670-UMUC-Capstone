@@ -1,0 +1,93 @@
+# Author: Edmond N. Pewing
+# Use case: Deploy a fleet of EC2 instances into Auto-scaling group
+# Version: 1.0
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 key pair for SSH access to the EC2 instance.
+    Type: AWS::EC2::KeyPair::KeyName 
+  DataDogInstanceType:
+    Type: String
+    Default: t2.small
+    Description: DataDog Instance Type
+    AllowedValues: 
+    - t2.small
+    - m4.large
+    - c4.4xlarge
+    - r4.4xlarge
+  DataDogInstanceName:
+    Type: String
+    Default: BallotOnlineDataDogInsight
+    Description: The name of the DataDog instance to deploy and display
+
+  SSHOrigin:
+    Description: The IP address range that can be used to SSH to the EC2 instances
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 0.0.0.0/0
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  VpcCidr:
+    Type: AWS::EC2::VPC::Id
+    Description: Select the VPC to deploy DataDog Server
+  DataDogSubnetIDs: 
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Select valid DataDog instance subnets with internet access
+Mappings: 
+  AWSRegionAMI: 
+    us-east-1: 
+      AMI: ami-062f7200baf2fa504
+    us-east-2: 
+      AMI: ami-02ccb28830b645a41
+    us-west-1: 
+      AMI: ami-03caa3f860895f82e
+    us-west-2: 
+      AMI: ami-04590e7389a6e577c
+     
+Resources:
+  DataDogLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId:
+        Fn::FindInMap:
+        - AWSRegionAMI
+        - !Ref AWS::Region
+        - AMI
+      InstanceType: !Ref DataDogInstanceType
+      AssociatePublicIpAddress: true
+      KeyName:  !Ref KeyName
+      SecurityGroups: 
+        - sg-0f83b31737d03f79f
+      BlockDeviceMappings:
+          - DeviceName: "/dev/xvdb"
+            Ebs:
+              VolumeType: "gp2"
+              Iops: "100"
+              DeleteOnTermination: "true"
+              VolumeSize: "100"
+      UserData:
+        Fn::Base64: !Sub |
+           #!/bin/bash -x
+            export DD_AGENT_MAJOR_VERSION=7
+            export DD_API_KEY=a84a01ada3d9a86764c291550b992821
+            DD_UPGRADE=true bash -c "$(curl -L https://raw.githubusercontent.com/DataDog/datadog-agent/master/cmd/agent/install_script.sh)"
+  DataDogASG:
+    UpdatePolicy: 
+      AutoScalingRollingUpdate: 
+        MinInstancesInService: "1"
+        MaxBatchSize: "5"
+        PauseTime: "PT15M"
+        WaitOnResourceSignals: "true"
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties: 
+      AutoScalingGroupName: BallotonlinDataDog
+      VPCZoneIdentifier: !Ref DataDogSubnetIDs
+      Cooldown: 300
+      DesiredCapacity: 3
+      LaunchConfigurationName: !Ref DataDogLaunchConfig
+      MaxSize: 5
+      MinSize: 3
+      TerminationPolicies: 
+        - Default
+
+
